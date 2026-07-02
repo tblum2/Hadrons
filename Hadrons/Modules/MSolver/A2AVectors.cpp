@@ -33,11 +33,7 @@ template class HADRONS_NAMESPACE::MSolver::TA2AVectors<FIMPL, BaseFermionEigenPa
 template class HADRONS_NAMESPACE::MSolver::TA2AVectors<ZFIMPL, BaseFermionEigenPack<ZFIMPL>>;
 template class HADRONS_NAMESPACE::MSolver::TStagA2AVectors<STAGIMPL, BaseFermionEigenPack<STAGIMPL>>;
 template class HADRONS_NAMESPACE::MSolver::TStagSparseA2AVectors<STAGIMPL, BaseFermionEigenPack<STAGIMPL>>;
-#ifdef USE_QLATTICE
-// TStagSparseA2AVectorsEvecIo is only declared inside the
-//   #if defined(USE_QLATTICE) ... #endif
-// block of A2AVectors.hpp. Skip the explicit instantiation when Grid/Hadrons
-// were built without -DUSE_QLATTICE, otherwise this line fails with
-// "no template named 'TStagSparseA2AVectorsEvecIo'".
+template class HADRONS_NAMESPACE::MSolver::TStagSparseA2AVectorsGridIo<STAGIMPL>;
+#if defined(USE_QLATTICE)
 template class HADRONS_NAMESPACE::MSolver::TStagSparseA2AVectorsEvecIo<STAGIMPL>;
 #endif
