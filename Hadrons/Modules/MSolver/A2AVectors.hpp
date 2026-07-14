@@ -985,13 +985,22 @@ void TStagSparseA2AVectorsGridIo<FImpl>::execute(void)
             HADRONS_ERROR(Io, "cannot create directory '" + dir
                           + "' ( " + std::strerror(errno) + ")");
         }
-        startTimer("V I/O");
-        A2AVectorsIo::write(par().output + "_v",  v,  par().multiFile, vm().getTrajectory());
+        // startTimer("V I/O");
+        // A2AVectorsIo::write(par().output + "_v",  v,  par().multiFile, vm().getTrajectory());
+        // stopTimer("V I/O");
+        // startTimer("W I/O");
+        // A2AVectorsIo::write(par().output + "_w0", w0, par().multiFile, vm().getTrajectory());
+        // A2AVectorsIo::write(par().output + "_w1", w1, par().multiFile, vm().getTrajectory());
+        // A2AVectorsIo::write(par().output + "_w2", w2, par().multiFile, vm().getTrajectory());
+        // stopTimer("W I/O");
+	    // multifile only
+		startTimer("V I/O");
+        A2AVectorsIo::write(par().output + "_v",  v,  true, vm().getTrajectory());
         stopTimer("V I/O");
         startTimer("W I/O");
-        A2AVectorsIo::write(par().output + "_w0", w0, par().multiFile, vm().getTrajectory());
-        A2AVectorsIo::write(par().output + "_w1", w1, par().multiFile, vm().getTrajectory());
-        A2AVectorsIo::write(par().output + "_w2", w2, par().multiFile, vm().getTrajectory());
+        A2AVectorsIo::write(par().output + "_w0", w0, true, vm().getTrajectory());
+        A2AVectorsIo::write(par().output + "_w1", w1, true, vm().getTrajectory());
+        A2AVectorsIo::write(par().output + "_w2", w2, true, vm().getTrajectory());
         stopTimer("W I/O");
     }
 
