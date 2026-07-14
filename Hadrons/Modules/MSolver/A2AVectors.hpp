@@ -842,25 +842,25 @@ void TStagSparseA2AVectorsGridIo<FImpl>::execute(void)
                 LOG(Message) << "Full grid dimensions:     " << U.Grid()->GlobalDimensions() << std::endl;
                 LOG(Message) << "RbGrid dimensions:        " << env().getRbGrid()->GlobalDimensions() << std::endl;
                 LOG(Message) << "norm2(tempEvec)=          " << norm2(tempEvec) << std::endl;
-	    }
+	    	}	
         }
 
-        //std::complex<double> eval(mass, sqrt(currentEval));
+        std::complex<double> eval(mass, sqrt(currentEval));
         
-        double lambda;
-        if (currentEval < mass * mass)
-        {
-            lambda = sqrt(currentEval);
-            if (il == 0)
-                LOG(Message) << "Eigenpack convention: massless DdagD (currentEval < m^2)" << std::endl;
-        }
-        else
-        {
-            lambda = sqrt(currentEval - mass * mass);
-            if (il == 0)
-                LOG(Message) << "Eigenpack convention: massive (D+m)dag(D+m) (currentEval >= m^2)" << std::endl;
-        }
-        std::complex<double> eval(mass, lambda);
+        // double lambda;
+        // if (currentEval < mass * mass)
+        // {
+        //     lambda = sqrt(currentEval);
+        //     if (il == 0)
+        //         LOG(Message) << "Eigenpack convention: massless DdagD (currentEval < m^2)" << std::endl;
+        // }
+        // else
+        // {
+        //     lambda = sqrt(currentEval - mass * mass);
+        //     if (il == 0)
+        //         LOG(Message) << "Eigenpack convention: massive (D+m)dag(D+m) (currentEval >= m^2)" << std::endl;
+        // }
+        // std::complex<double> eval(mass, lambda);
 
 	startTimer("W low mode");
         LOG(Message) << "W vector i = " << il << " (low modes)" << std::endl;
