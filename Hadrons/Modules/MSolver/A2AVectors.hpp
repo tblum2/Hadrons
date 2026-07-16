@@ -636,6 +636,7 @@ public:
                                     std::string, evecPath,
                                     std::string, output,
                                     int, numEvecs,
+									int, evecParity,
                                     int, inc,
                                     int, tinc,
                                     double, mass,
@@ -743,8 +744,13 @@ void TStagSparseA2AVectorsGridIo<FImpl>::execute(void)
 
     // scratch space: only one eigenvector in memory at a time
     FermionField tempEvec(env().getRbGrid());
-    tempEvec.Checkerboard() = Odd;
-    assert(tempEvec.Checkerboard() == Odd);
+    if(par().evecParity){
+		tempEvec.Checkerboard() = Odd;
+    	assert(tempEvec.Checkerboard() == Odd);
+	}else{
+		tempEvec.Checkerboard() = Even;
+    	assert(tempEvec.Checkerboard() == Even);
+	}
     LOG(Message) << " Checkerboard grid: " << std::endl;
     tempEvec.Grid()->show_decomposition();
     LOG(Message) << " Checkerboard dimension: "<< tempEvec.Grid()->_checker_dim  << std::endl;
@@ -862,10 +868,14 @@ void TStagSparseA2AVectorsGridIo<FImpl>::execute(void)
         // }
         // std::complex<double> eval(mass, lambda);
 
-	startTimer("W low mode");
+		startTimer("W low mode");
         LOG(Message) << "W vector i = " << il << " (low modes)" << std::endl;
         // don't divide by lambda — do it in contraction since it is complex
-        a2a.makeLowModeW(temp, tempEvec, eval, il%2);
+        if(par().evecParity{
+			a2a.makeLowModeW(temp, tempEvec, eval, il%2);
+		}else{
+			a2a.makeLowModeEvenW(temp, tempEvec, eval, il%2);
+		}
         stopTimer("W low mode");
         
         
