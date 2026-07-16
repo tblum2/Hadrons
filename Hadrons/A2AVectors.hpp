@@ -122,7 +122,8 @@ private:
     FMat                                     &action_;
     GridBase                                 *fGrid_, *frbGrid_, *gGrid_;
     bool                                     is5d_;
-    FermionField                             src_o_, sol_e_, sol_o_, tmp_, tmp5_;
+    // src can be even or odd
+    FermionField                             src_, sol_e_, sol_o_, tmp_, tmp5_;
     //SchurStaggeredOperator<FMat, FermionField> op_;
 };
 
@@ -495,7 +496,7 @@ A2AVectorsLowStaggered<FImpl>::A2AVectorsLowStaggered(FMat &action)
 , fGrid_(action_.FermionGrid())
 , frbGrid_(action_.FermionRedBlackGrid())
 , gGrid_(action_.GaugeGrid())
-, src_o_(frbGrid_)
+, src_(frbGrid_)
 , sol_e_(frbGrid_)
 , sol_o_(frbGrid_)
 , tmp_(frbGrid_)
@@ -513,15 +514,15 @@ void A2AVectorsLowStaggered<FImpl>::makeLowModeV(FermionField &vout,
     ComplexD eval_ = eval;
     // evec_o = -evec_o ?
     if(sign){eval_=conjugate(eval);}
-    src_o_ = evec;
-    src_o_.Checkerboard() = Odd;
+    src_ = evec;
+    src_.Checkerboard() = Odd;
     pickCheckerboard(Even, sol_e_, vout);
     pickCheckerboard(Odd, sol_o_, vout);
     
     /////////////////////////////////////////////////////
     /// v_e = (1/eval^(*)) * (-i/Im(eval) * Meo evec_o)
     /////////////////////////////////////////////////////
-    action_.Meooe(src_o_, tmp_);
+    action_.Meooe(src_, tmp_);
     ComplexD minusI(0, -1.0);
     ComplexD cc = minusI/eval.imag()/eval_;
     sol_e_ = cc * tmp_;
@@ -530,7 +531,7 @@ void A2AVectorsLowStaggered<FImpl>::makeLowModeV(FermionField &vout,
     /// v_o = (1/eval^(*)) * evec_o
     /////////////////////////////////////////////////////
     cc = 1.0/eval_;
-    sol_o_ = cc * src_o_;
+    sol_o_ = cc * src_;
     if(sign){sol_o_ = -sol_o_;}
     
     setCheckerboard(vout, sol_e_);
@@ -546,15 +547,15 @@ void A2AVectorsLowStaggered<FImpl>::makeLowModeW(FermionField &wout,
                                                    const std::complex<double> eval,
                                                    const int sign)
 {
-    src_o_ = evec;
-    src_o_.Checkerboard() = Odd;
+    src_ = evec;
+    src_.Checkerboard() = Odd;
     pickCheckerboard(Even, sol_e_, wout);
     pickCheckerboard(Odd, sol_o_, wout);
     
     /////////////////////////////////////////////////////
     /// v_e = (-i/eval * Meo evec_o)
     /////////////////////////////////////////////////////
-    action_.Meooe(src_o_, tmp_);
+    action_.Meooe(src_, tmp_);
     ComplexD minusI(0, -1.0);
     ComplexD cc = minusI/eval.imag();
     sol_e_ = cc * tmp_;
@@ -562,7 +563,7 @@ void A2AVectorsLowStaggered<FImpl>::makeLowModeW(FermionField &wout,
     /////////////////////////////////////////////////////
     /// v_o = evec_o
     /////////////////////////////////////////////////////
-    sol_o_ = src_o_;
+    sol_o_ = src_;
     if(sign){sol_o_ = -1.0*sol_o_;}
     
     setCheckerboard(wout, sol_e_);
@@ -578,15 +579,15 @@ void A2AVectorsLowStaggered<FImpl>::makeLowModeEvenW(FermionField &wout,
                                                      const std::complex<double> eval,
                                                      const int sign)
 {
-    src_e_ = evec;
-    src_e_.Checkerboard() = Even;
+    src_ = evec;
+    src_.Checkerboard() = Even;
     pickCheckerboard(Even, sol_e_, wout);
     pickCheckerboard(Odd, sol_o_, wout);
     
     /////////////////////////////////////////////////////
     /// v_o = (-i/eval * Moe evec_e)
     /////////////////////////////////////////////////////
-    action_.Meooe(src_e_, tmp_);
+    action_.Meooe(src_, tmp_);
     ComplexD minusI(0, -1.0);
     ComplexD cc = minusI/eval.imag();
     sol_o_ = cc * tmp_;
@@ -594,7 +595,7 @@ void A2AVectorsLowStaggered<FImpl>::makeLowModeEvenW(FermionField &wout,
     /////////////////////////////////////////////////////
     /// v_e = evec_e
     /////////////////////////////////////////////////////
-    sol_e_ = src_e_;
+    sol_e_ = src_;
     if(sign){sol_e_ = -1.0*sol_e_;}
     
     setCheckerboard(wout, sol_e_);
