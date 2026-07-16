@@ -114,6 +114,8 @@ public:
                       const FermionField &evec, const std::complex<double> eval, const int sign=0);
     void makeLowModeW(FermionField &wout,
                       const FermionField &evec, const std::complex<double> eval, const int sign=0);
+    void makeLowModeEvenW(FermionField &wout,
+                          const FermionField &evec, const std::complex<double> eval, const int sign=0);
     void makeHighModeV(FermionField &vout, const FermionField &noise);
     void makeHighModeW(FermionField &wout, const FermionField &noise);
 private:
@@ -562,6 +564,38 @@ void A2AVectorsLowStaggered<FImpl>::makeLowModeW(FermionField &wout,
     /////////////////////////////////////////////////////
     sol_o_ = src_o_;
     if(sign){sol_o_ = -1.0*sol_o_;}
+    
+    setCheckerboard(wout, sol_e_);
+    assert(sol_e_.Checkerboard() == Even);
+    setCheckerboard(wout, sol_o_);
+    assert(sol_o_.Checkerboard() == Odd);
+    wout *= 1/sqrt(2); // since norm of all site evec is 2
+}
+
+template <typename FImpl>
+void A2AVectorsLowStaggered<FImpl>::makeLowModeEvenW(FermionField &wout,
+                                                     const FermionField &evec,
+                                                     const std::complex<double> eval,
+                                                     const int sign)
+{
+    src_e_ = evec;
+    src_e_.Checkerboard() = Even;
+    pickCheckerboard(Even, sol_e_, wout);
+    pickCheckerboard(Odd, sol_o_, wout);
+    
+    /////////////////////////////////////////////////////
+    /// v_o = (-i/eval * Moe evec_e)
+    /////////////////////////////////////////////////////
+    action_.Meooe(src_e_, tmp_);
+    ComplexD minusI(0, -1.0);
+    ComplexD cc = minusI/eval.imag();
+    sol_o_ = cc * tmp_;
+    
+    /////////////////////////////////////////////////////
+    /// v_e = evec_e
+    /////////////////////////////////////////////////////
+    sol_e_ = src_e_;
+    if(sign){sol_e_ = -1.0*sol_e_;}
     
     setCheckerboard(wout, sol_e_);
     assert(sol_e_.Checkerboard() == Even);
