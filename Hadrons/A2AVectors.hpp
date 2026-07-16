@@ -591,12 +591,12 @@ void A2AVectorsLowStaggered<FImpl>::makeLowModeEvenW(FermionField &wout,
     ComplexD minusI(0, -1.0);
     ComplexD cc = minusI/eval.imag();
     sol_o_ = cc * tmp_;
+    if(sign){sol_o_ = -1.0*sol_o_;}
     
     /////////////////////////////////////////////////////
     /// v_e = evec_e
     /////////////////////////////////////////////////////
     sol_e_ = src_;
-    if(sign){sol_e_ = -1.0*sol_e_;}
     
     setCheckerboard(wout, sol_e_);
     assert(sol_e_.Checkerboard() == Even);
