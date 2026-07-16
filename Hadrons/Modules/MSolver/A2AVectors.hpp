@@ -871,7 +871,7 @@ void TStagSparseA2AVectorsGridIo<FImpl>::execute(void)
 		startTimer("W low mode");
         LOG(Message) << "W vector i = " << il << " (low modes)" << std::endl;
         // don't divide by lambda — do it in contraction since it is complex
-        if(par().evecParity{
+        if(par().evecParity){
 			a2a.makeLowModeW(temp, tempEvec, eval, il%2);
 		}else{
 			a2a.makeLowModeEvenW(temp, tempEvec, eval, il%2);
