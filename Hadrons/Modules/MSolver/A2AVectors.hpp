@@ -640,6 +640,7 @@ public:
                                     int, inc,
                                     int, tinc,
                                     double, mass,
+									bool, milcDop,
                                     bool, multiFile);
 };
 
@@ -851,22 +852,12 @@ void TStagSparseA2AVectorsGridIo<FImpl>::execute(void)
 	    	}	
         }
 
+		// MILC dirac op is 2 times Grid
         std::complex<double> eval(mass, sqrt(currentEval));
-        
-        // double lambda;
-        // if (currentEval < mass * mass)
-        // {
-        //     lambda = sqrt(currentEval);
-        //     if (il == 0)
-        //         LOG(Message) << "Eigenpack convention: massless DdagD (currentEval < m^2)" << std::endl;
-        // }
-        // else
-        // {
-        //     lambda = sqrt(currentEval - mass * mass);
-        //     if (il == 0)
-        //         LOG(Message) << "Eigenpack convention: massive (D+m)dag(D+m) (currentEval >= m^2)" << std::endl;
-        // }
-        // std::complex<double> eval(mass, lambda);
+		if(par().milcDop){
+			double milc_imag = eval.imag()/2;
+			eval.imag(milc_imag);	
+		}
 
 		startTimer("W low mode");
         LOG(Message) << "W vector i = " << il << " (low modes)" << std::endl;
