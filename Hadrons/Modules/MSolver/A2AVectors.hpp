@@ -635,13 +635,14 @@ public:
                                     std::string, gauge,
                                     std::string, evecPath,
                                     std::string, output,
-                                    int, numEvecs,
-									int, evecParity,
-                                    int, inc,
-                                    int, tinc,
-                                    double, mass,
-									bool, milcDop,
-                                    bool, multiFile);
+                                    int,         numEvecs,
+                                    int,         evecStart,
+                                    int,         evecParity,
+                                    int,         inc,
+                                    int,         tinc,
+                                    double,      mass,
+                                    bool,        multiFile,
+                                    bool,        milcEvecs);
 };
 
 
@@ -708,22 +709,32 @@ void TStagSparseA2AVectorsGridIo<FImpl>::setup(void)
     auto &action = envGet(FMat, par().action);
 
     Nl_ = par().numEvecs;
-    envTmp(A2A, "a2a", 1, action);
+    LOG(Message) << "StagSparseA2AVectorsGridIo setup: numEvecs=" << par().numEvecs
+                 << " evecStart=" << par().evecStart
+                 << " evecParity=" << par().evecParity
+                 << " inc=" << par().inc
+                 << " tinc=" << par().tinc << std::endl;
 
-    // Sparse Grid
-    std::vector<int> blocksize(4);
-    blocksize[0] = par().inc;
-    blocksize[1] = par().inc;
-    blocksize[2] = par().inc;
-    blocksize[3] = par().tinc;
-    envCreate(std::vector<SparseFermionField>, getName() + "_v", 1,
-              2*Nl_, envGetCoarseGrid(SparseFermionField,blocksize));
-    envCreate(std::vector<SparseFermionField>, getName() + "_w0", 1,
-              2*Nl_, envGetCoarseGrid(SparseFermionField,blocksize));
-    envCreate(std::vector<SparseFermionField>, getName() + "_w1", 1,
-              2*Nl_, envGetCoarseGrid(SparseFermionField,blocksize));
-    envCreate(std::vector<SparseFermionField>, getName() + "_w2", 1,
-              2*Nl_, envGetCoarseGrid(SparseFermionField,blocksize));
+    envTmp(A2A, "a2a", 1, action);
+    envTmp(FermionField, "tempEvec", 1, envGetRbGrid(FermionField));
+
+    // Sparse Grid: only pay for the coarse-grid machinery when actually sparsening
+    int bsinc  = par().inc  > 0 ? par().inc  : 1;
+    int bstinc = par().tinc > 0 ? par().tinc : 1;
+    GridBase *sgrid;
+    if (bsinc > 1 || bstinc > 1)
+    {
+        std::vector<int> blocksize = {bsinc, bsinc, bsinc, bstinc};
+        sgrid = envGetCoarseGrid(SparseFermionField, blocksize);
+    }
+    else
+    {
+        sgrid = envGetGrid(SparseFermionField);
+    }
+    envCreate(std::vector<SparseFermionField>, getName() + "_v",  1, 2*Nl_, sgrid);
+    envCreate(std::vector<SparseFermionField>, getName() + "_w0", 1, 2*Nl_, sgrid);
+    envCreate(std::vector<SparseFermionField>, getName() + "_w1", 1, 2*Nl_, sgrid);
+    envCreate(std::vector<SparseFermionField>, getName() + "_w2", 1, 2*Nl_, sgrid);
 }
 
 // execution ///////////////////////////////////////////////////////////////////
@@ -743,18 +754,17 @@ void TStagSparseA2AVectorsGridIo<FImpl>::execute(void)
     auto &w2 = envGet(std::vector<SparseFermionField>, getName() + "_w2");
     const int traj = vm().getTrajectory();
 
-    // scratch space: only one eigenvector in memory at a time
-    FermionField tempEvec(env().getRbGrid());
-    if(par().evecParity){
-		tempEvec.Checkerboard() = Odd;
-    	assert(tempEvec.Checkerboard() == Odd);
-	}else{
-		tempEvec.Checkerboard() = Even;
-    	assert(tempEvec.Checkerboard() == Even);
-	}
+    // Checkerboard of the streamed eigenvectors, selectable via evecParity
+    // (kept for backward compatibility; Vaishakhi's upstream version hardcodes Odd).
+    int cb = par().evecParity ? Odd : Even;
+
+    envGetTmp(FermionField, tempEvec);
+    tempEvec.Checkerboard() = cb;
+    assert(tempEvec.Checkerboard() == cb);
     LOG(Message) << " Checkerboard grid: " << std::endl;
     tempEvec.Grid()->show_decomposition();
     LOG(Message) << " Checkerboard dimension: "<< tempEvec.Grid()->_checker_dim  << std::endl;
+
     RealD currentEval = 0.;
     PackRecord packRecord;
     ScidacReader binReader;
@@ -764,10 +774,12 @@ void TStagSparseA2AVectorsGridIo<FImpl>::execute(void)
     std::string stem    = par().evecPath + t;          // directory for multiFile
     std::string binFile = par().evecPath + t + ".bin"; // single-file path
 
-   
-
     LOG(Message) << "Computing sparse A2A vectors streaming " << 2*Nl_
                  << " low modes from " << (par().multiFile ? stem : binFile) << std::endl;
+    LOG(Message) << " Full grid: " << std::endl;
+    U.Grid()->show_decomposition();
+    LOG(Message) << " Sparse grid: " << std::endl;
+    v[0].Grid()->show_decomposition();
 
     // Staggered Phases. Do spatial gamma only
     Lattice<iScalar<vInteger> > x(U.Grid()); LatticeCoordinate(x,0);
@@ -815,12 +827,65 @@ void TStagSparseA2AVectorsGridIo<FImpl>::execute(void)
     LOG(Message) << "yshift" << yshift << std::endl;
     LOG(Message) << "zshift" << zshift << std::endl;
 
-    // For single-file mode: open once before the loop to avoid repeated
-    // MPI_File_open/close cycles which exhaust GPFS/OMPIO resources (~974 opens).
+    // Detect convention from evec 0 regardless of evecStart.
+    // For evecStart>0 single-file: open, read header+evec0, close — then reopen
+    // for the main loop.  For multiFile: open v0.bin directly.
+    bool masslessDdagD = false;
+    {
+        RealD eval0 = 0.;
+        if (par().evecStart == 0)
+        {
+            // Convention detected inside the main loop at il==0.
+        }
+        else if (par().multiFile)
+        {
+            std::string fname0 = stem + "/v0.bin";
+            ScidacReader r0;
+            FermionField evec0(tempEvec.Grid());
+            evec0.Checkerboard() = cb;
+            PackRecord   pr0;
+            r0.open(fname0);
+            EigenPackIo::readHeader(pr0, r0);
+            EigenPackIo::readElement(evec0, eval0, 0, r0);
+            r0.close();
+            masslessDdagD = (eval0 < mass * mass);
+            LOG(Message) << "Eigenpack convention (from v0.bin): "
+                         << (masslessDdagD ? "massless DdagD" : "massive (D+m)dag(D+m)")
+                         << " (eval0=" << eval0 << ", m^2=" << mass*mass << ")" << std::endl;
+        }
+        else
+        {
+            // Single-file: open, read header, read evec 0, close.
+            ScidacReader r0;
+            FermionField evec0(tempEvec.Grid());
+            evec0.Checkerboard() = cb;
+            PackRecord   pr0;
+            r0.open(binFile);
+            EigenPackIo::readHeader(pr0, r0);
+            EigenPackIo::readElement(evec0, eval0, 0, r0);
+            r0.close();
+            masslessDdagD = (eval0 < mass * mass);
+            LOG(Message) << "Eigenpack convention (from evec 0): "
+                         << (masslessDdagD ? "massless DdagD" : "massive (D+m)dag(D+m)")
+                         << " (eval0=" << eval0 << ", m^2=" << mass*mass << ")" << std::endl;
+        }
+    }
+
+    // Open single file once; use skipScidacFieldRecord() to seek past evecStart
+    // records — this reads only LIME headers (~bytes) and calls fseek() past the
+    // binary data, so it is near-instantaneous even for large evecStart.
     if (!par().multiFile)
     {
         binReader.open(binFile);
         EigenPackIo::readHeader(packRecord, binReader);
+        if (par().evecStart > 0)
+        {
+            LOG(Message) << "Fast-seeking past " << par().evecStart
+                         << " eigenvectors (LIME header seek, no data read)" << std::endl;
+            for (int sk = 0; sk < par().evecStart; sk++)
+                binReader.skipScidacFieldRecord();
+            LOG(Message) << "Seek complete." << std::endl;
+        }
     }
 
     for (unsigned int il = 0; il < 2*Nl_; il++)
@@ -828,50 +893,66 @@ void TStagSparseA2AVectorsGridIo<FImpl>::execute(void)
         // read a new eigenvector from disk every other iteration
         if (il % 2 == 0)
         {
-            int k = il / 2;
+            int k    = il / 2;
+            int kabs = k + par().evecStart;
             startTimer("evec read");
+            LOG(Message) << "Reading eigenvector " << kabs << std::endl;
             if (par().multiFile)
             {
-                std::string fname = stem + "/v" + std::to_string(k) + ".bin";
+                std::string fname = stem + "/v" + std::to_string(kabs) + ".bin";
                 binReader.open(fname);
                 EigenPackIo::readHeader(packRecord, binReader);
-                EigenPackIo::readElement(tempEvec, currentEval, k, binReader);
+                EigenPackIo::readElement(tempEvec, currentEval, kabs, binReader);
                 binReader.close();
             }
             else
             {
-                EigenPackIo::readElement(tempEvec, currentEval, k, binReader);
+                EigenPackIo::readElement(tempEvec, currentEval, kabs, binReader);
             }
             stopTimer("evec read");
-	    if (il == 0)
+            if (il == 0)
             {
                 LOG(Message) << "tempEvec grid dimensions: " << tempEvec.Grid()->GlobalDimensions() << std::endl;
                 LOG(Message) << "Full grid dimensions:     " << U.Grid()->GlobalDimensions() << std::endl;
                 LOG(Message) << "RbGrid dimensions:        " << env().getRbGrid()->GlobalDimensions() << std::endl;
                 LOG(Message) << "norm2(tempEvec)=          " << norm2(tempEvec) << std::endl;
-	    	}	
+                LOG(Message) << "tempEvec checkerboard after readElement: " << tempEvec.Checkerboard() << std::endl;
+            }
         }
 
-		// MILC dirac op is 2 times Grid
-        std::complex<double> eval(mass, sqrt(currentEval));
-		if(par().milcDop){
-			double milc_imag = eval.imag()/2;
-			eval.imag(milc_imag);	
-		}
+        if (il == 0 && par().evecStart == 0)
+        {
+            masslessDdagD = (currentEval < mass * mass);
+            LOG(Message) << "Eigenpack convention: "
+                         << (masslessDdagD ? "massless DdagD" : "massive (D+m)dag(D+m)")
+                         << " (eval0=" << currentEval << ", m^2=" << mass*mass << ")" << std::endl;
+        }
 
-		startTimer("W low mode");
+        double lambda = masslessDdagD ? sqrt(currentEval)
+                                      : sqrt(currentEval - mass * mass);
+        std::complex<double> eval(mass, lambda);
+        // MILC's Dirac op eigenvalues are 2x Grid's convention; only the eval
+        // fed into makeLowModeW needs the correction, the stored/output eval
+        // should remain the true eigenvalue.
+        std::complex<double> eval_for_W = par().milcEvecs
+                                          ? std::complex<double>(mass, lambda / 2.0)
+                                          : eval;
+
+        startTimer("W low mode");
         LOG(Message) << "W vector i = " << il << " (low modes)" << std::endl;
         // don't divide by lambda — do it in contraction since it is complex
-        if(par().evecParity){
-			a2a.makeLowModeW(temp, tempEvec, eval, il%2);
-		}else{
-			a2a.makeLowModeEvenW(temp, tempEvec, eval, il%2);
-		}
+        if (par().evecParity)
+        {
+            a2a.makeLowModeW(temp, tempEvec, eval_for_W, il % 2);
+        }
+        else
+        {
+            a2a.makeLowModeEvenW(temp, tempEvec, eval_for_W, il % 2);
+        }
         stopTimer("W low mode");
-        
-        
-	il%2 ? eval=conjugate(eval) : eval ;
-        evalM[il]=eval;
+
+        il % 2 ? eval = conjugate(eval) : eval;
+        evalM[il] = eval;
 
         v[il]  = Zero();
         w0[il] = Zero();
@@ -986,22 +1067,15 @@ void TStagSparseA2AVectorsGridIo<FImpl>::execute(void)
             HADRONS_ERROR(Io, "cannot create directory '" + dir
                           + "' ( " + std::strerror(errno) + ")");
         }
-        // startTimer("V I/O");
-        // A2AVectorsIo::write(par().output + "_v",  v,  par().multiFile, vm().getTrajectory());
-        // stopTimer("V I/O");
-        // startTimer("W I/O");
-        // A2AVectorsIo::write(par().output + "_w0", w0, par().multiFile, vm().getTrajectory());
-        // A2AVectorsIo::write(par().output + "_w1", w1, par().multiFile, vm().getTrajectory());
-        // A2AVectorsIo::write(par().output + "_w2", w2, par().multiFile, vm().getTrajectory());
-        // stopTimer("W I/O");
-	    // multifile only
-		startTimer("V I/O");
-        A2AVectorsIo::write(par().output + "_v",  v,  true, vm().getTrajectory());
+        // output is always written multi-file for GridIo, regardless of par().multiFile
+        // (which controls how the input eigenvectors are read above)
+        startTimer("V I/O");
+        A2AVectorsIo::write(par().output + "_v",  v,  true, traj);
         stopTimer("V I/O");
         startTimer("W I/O");
-        A2AVectorsIo::write(par().output + "_w0", w0, true, vm().getTrajectory());
-        A2AVectorsIo::write(par().output + "_w1", w1, true, vm().getTrajectory());
-        A2AVectorsIo::write(par().output + "_w2", w2, true, vm().getTrajectory());
+        A2AVectorsIo::write(par().output + "_w0", w0, true, traj);
+        A2AVectorsIo::write(par().output + "_w1", w1, true, traj);
+        A2AVectorsIo::write(par().output + "_w2", w2, true, traj);
         stopTimer("W I/O");
     }
 
@@ -1009,9 +1083,9 @@ void TStagSparseA2AVectorsGridIo<FImpl>::execute(void)
     {
         std::string eval_filename;
         if (!par().output.empty())
-            eval_filename = A2AVectorsIo::evalFilename(par().output, vm().getTrajectory());
+            eval_filename = A2AVectorsIo::evalFilename(par().output, traj);
         else
-            eval_filename = A2AVectorsIo::evalFilename("evals", vm().getTrajectory());
+            eval_filename = A2AVectorsIo::evalFilename("evals", traj);
         A2AVectorsIo::initEvalFile(eval_filename, evalM.size());
         A2AVectorsIo::saveEvalBlock(eval_filename, evalM.data(), 0, 2*Nl_);
     }
